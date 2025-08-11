@@ -3,16 +3,9 @@ from agent import Agent
 from config import *
 import pandas as pd
 import os
-os.system('cls')
+import concurrent.futures
+import time
 
-print("Initializing DataFrame.")
-df = pd.DataFrame({'complexity': [],
-                   'ratio': [],
-                   'max_steps': [],
-                   'random_steps': [],
-                   'direct_steps': [],
-                   'reached_goal': [],
-                   'control': []})
 
 def run_simulation_a_star(cfg, directed_every_n_steps, comp, max_step):
     
@@ -29,7 +22,7 @@ def run_simulation_a_star(cfg, directed_every_n_steps, comp, max_step):
             agent.move_random()
         steps += 1
 
-    df.loc[len(df)] = [comp, directed_every_n_steps, max_step, steps, directed_count, agent.reached_goal(), False]
+    return (comp, directed_every_n_steps, max_step, steps, directed_count, agent.reached_goal(), False)
 
 def run_simulation_random(cfg, directed_every_n_steps, comp, max_step):
     
@@ -41,48 +34,62 @@ def run_simulation_random(cfg, directed_every_n_steps, comp, max_step):
         agent.move_random()
         steps += 1
 
-    df.loc[len(df)] = [comp, directed_every_n_steps, (max_step + max_step / directed_every_n_steps), steps, 0, agent.reached_goal(), True]
-    
+    return (comp, directed_every_n_steps, (max_step + max_step / directed_every_n_steps), steps, 0, agent.reached_goal(), True)
+
+def run_random_wrapper(maze, ratio, maze_num, max_steps):
+        return run_simulation_random(maze, ratio, maze_num, max_steps)
+
+def run_a_star_wrapper(maze, ratio, maze_num, max_steps):
+    return run_simulation_a_star(maze, ratio, maze_num, max_steps)
 
 if __name__ == "__main__":
 
     sim_count = 1000
     max_steps = 100000
-    ratio = 100
-    
-    print("Starting [" + str(sim_count) + "] control simulations")
-    
-    for i in range(0, sim_count):
-        run_simulation_random(MAZE_1, ratio, 1, max_steps)
+    ratios = [5, 10, 25, 50, 100]
+    ratio = 25
+    MAZES = [MAZE_1, MAZE_2, MAZE_3, MAZE_4, MAZE_5]
 
-    for i in range(0, sim_count):
-        run_simulation_random(MAZE_2, ratio, 2, max_steps)
+    start_time = time.time()
 
-    for i in range(0, sim_count):
-        run_simulation_random(MAZE_3, ratio, 3, max_steps)
 
-    for i in range(0, sim_count):
-        run_simulation_random(MAZE_4, ratio, 4, max_steps)
-    
-    for i in range(0, sim_count):
-        run_simulation_random(MAZE_5, ratio, 5, max_steps)
-    
+    with concurrent.futures.ProcessPoolExecutor() as executor:
 
-    print("Starting [" + str(sim_count) + "] simulations for ratio ["+str(ratio)+"-1]")
+        futures = []
 
-    for i in range(0, sim_count):
-        run_simulation_a_star(MAZE_1, ratio, 1, max_steps)
-    
-    for i in range(0, sim_count):
-        run_simulation_a_star(MAZE_2, ratio, 2, max_steps)
+        for r in ratios:
 
-    for i in range(0, sim_count):
-        run_simulation_a_star(MAZE_3, ratio, 3, max_steps)
+            os.system("cls")
+            print("Running Simulations for ratio " + str(r) + ":1")
 
-    for i in range(0, sim_count):
-        run_simulation_a_star(MAZE_4, ratio, 4, max_steps)
+            for maze in MAZES:
+                maze_name = str(maze)[54:-6]
+                maze_num = int(str(maze)[58:-6])
+                print(f"Running control for {maze_name}")
+                for _ in range(sim_count):
+                    futures.append(executor.submit(run_random_wrapper, maze, r, maze_num, max_steps))
 
-    for i in range(0, sim_count):
-        run_simulation_a_star(MAZE_5, ratio, 5, max_steps)
-    
+
+            for maze in MAZES:
+                maze_name = str(maze)[54:-6]
+                maze_num = int(str(maze)[58:-6])
+                print(f"Running simulation for {maze_name}")
+                for _ in range(sim_count):
+                    futures.append(executor.submit(run_a_star_wrapper, maze, r, maze_num, max_steps))
+
+            results = []
+            for future in concurrent.futures.as_completed(futures):
+                results.append(future.result())
+        
+        df = pd.DataFrame(results, columns=['complexity', 'ratio', 'max_steps', 'random_steps', 'direct_steps', 'reached_goal', 'control'])
+
+
+
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
+    print("Started at: " + time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(start_time)))
+    print("Ended at: " + time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(end_time)))
+    print(f"Execution time: {elapsed_time:.2f} seconds")
+
     df.to_excel("output.xlsx")
